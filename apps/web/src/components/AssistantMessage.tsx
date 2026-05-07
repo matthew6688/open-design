@@ -265,11 +265,14 @@ function ProducedFiles({
   onRequestOpenFile?: (name: string) => void;
 }) {
   const t = useT();
+  const normalizedFiles = files
+    .map(normalizeProducedFile)
+    .filter((file): file is ProjectFile => Boolean(file));
   return (
     <div className="produced-files">
       <div className="produced-files-label">{t('assistant.producedFiles')}</div>
       <div className="produced-files-list">
-        {files.map((f) => (
+        {normalizedFiles.map((f) => (
           <div key={f.name} className="produced-file">
             <span className="produced-file-icon" aria-hidden>
               <Icon name={kindIconName(f.kind)} size={14} />
@@ -299,6 +302,67 @@ function ProducedFiles({
       </div>
     </div>
   );
+}
+
+function normalizeProducedFile(file: unknown): ProjectFile | null {
+  if (!file) return null;
+  if (typeof file === 'string') {
+    const name = file.split('/').filter(Boolean).pop() ?? file;
+    return {
+      name,
+      path: file,
+      size: 0,
+      mtime: Date.now(),
+      kind: inferProducedFileKind(file),
+      mime: 'application/octet-stream',
+    };
+  }
+  if (typeof file !== 'object') return null;
+  const candidate = file as Partial<ProjectFile> & { path?: unknown; name?: unknown; kind?: unknown; size?: unknown; mtime?: unknown; mime?: unknown };
+  const rawPath = typeof candidate.path === 'string' && candidate.path ? candidate.path : null;
+  const rawName = typeof candidate.name === 'string' && candidate.name ? candidate.name : null;
+  const name = rawName ?? (rawPath ? rawPath.split('/').filter(Boolean).pop() ?? rawPath : null);
+  if (!name) return null;
+  return {
+    name,
+    ...(rawPath ? { path: rawPath } : {}),
+    size: typeof candidate.size === 'number' ? candidate.size : 0,
+    mtime: typeof candidate.mtime === 'number' ? candidate.mtime : Date.now(),
+    kind: isProjectFileKind(candidate.kind) ? candidate.kind : inferProducedFileKind(rawPath ?? name),
+    mime: typeof candidate.mime === 'string' && candidate.mime ? candidate.mime : 'application/octet-stream',
+    ...(candidate.artifactKind ? { artifactKind: candidate.artifactKind } : {}),
+    ...(candidate.artifactManifest ? { artifactManifest: candidate.artifactManifest } : {}),
+  };
+}
+
+function inferProducedFileKind(filePath: string): ProjectFile['kind'] {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith('.html')) return 'html';
+  if (/\.(png|jpe?g|gif|webp|svg|avif|bmp)$/i.test(lower)) return 'image';
+  if (/\.(mp4|mov|webm|mkv)$/i.test(lower)) return 'video';
+  if (/\.(mp3|wav|m4a|aac|ogg)$/i.test(lower)) return 'audio';
+  if (lower.endsWith('.pdf')) return 'pdf';
+  if (/\.(doc|docx)$/i.test(lower)) return 'document';
+  if (/\.(ppt|pptx)$/i.test(lower)) return 'presentation';
+  if (/\.(xls|xlsx|csv)$/i.test(lower)) return 'spreadsheet';
+  if (/\.(txt|md)$/i.test(lower)) return 'text';
+  if (/\.(js|ts|tsx|jsx|json|css|scss|less|astro|py|rb|go|rs|java|php)$/i.test(lower)) return 'code';
+  return 'binary';
+}
+
+function isProjectFileKind(value: unknown): value is ProjectFile['kind'] {
+  return value === 'html'
+    || value === 'image'
+    || value === 'video'
+    || value === 'audio'
+    || value === 'sketch'
+    || value === 'text'
+    || value === 'code'
+    || value === 'pdf'
+    || value === 'document'
+    || value === 'presentation'
+    || value === 'spreadsheet'
+    || value === 'binary';
 }
 
 function kindIconName(
