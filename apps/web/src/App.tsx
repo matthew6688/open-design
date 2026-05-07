@@ -239,6 +239,54 @@ export function App() {
     setProjects(list);
   }, []);
 
+  // Keep the home/project chrome in sync with projects created outside the
+  // current renderer session (for example: daemon/API callers, another OD
+  // window, or ProfitsLocal automation). Without this, the Recent grid only
+  // reflected the initial bootstrap payload until the user manually reloaded
+  // the app. Poll while on the home view, and refresh on focus/visibility
+  // changes everywhere.
+  useEffect(() => {
+    if (!daemonLive) return;
+    let cancelled = false;
+    let inFlight = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const refresh = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const list = await listProjects();
+        if (!cancelled) setProjects(list);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const handleFocus = () => {
+      void refresh();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    if (route.kind === 'home') {
+      intervalId = setInterval(() => {
+        void refresh();
+      }, 3_000);
+    }
+
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [daemonLive, route.kind]);
+
   const refreshTemplates = useCallback(async () => {
     const list = await listTemplates();
     setTemplates(list);
